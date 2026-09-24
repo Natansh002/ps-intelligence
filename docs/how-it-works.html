@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="How PS Intelligence works: the mechanism, the pipeline, what it computes, and what it is not.">
+<meta name="robots" content="noindex, nofollow">
+<style>html,body{margin:0;padding:0}</style>
+</head>
+<body>
+<title>How PS Intelligence Works</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lato:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* ==========================================================================
+   Same tokens as the console itself, so the explanation and the thing being
+   explained do not look like two different products.
+   ========================================================================== */
+:root {
+  color-scheme: light;
+  --ground:      #F4F6F7;
+  --surface:     #FFFFFF;
+  --surface-2:   #FAFBFB;
+  --sunk:        #EDF1F2;
+  --line:        #DCE3E5;
+  --line-strong: #C3CFD3;
+  --ink:         #12222A;
+  --ink-2:       #47606B;
+  --ink-3:       #71878F;
+  --accent:      #0F7C77;
+  --accent-soft: #E4F2F1;
+  --lemon:       #B87500;
+  --good:        #0F7A55;
+  --bad:         #B02A37;
+  --font-ui:   'Inter', 'Franklin Gothic', Arial, sans-serif;
+  --font-body: 'Lato', 'Franklin Gothic', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground:      #0E171C;
+    --surface:     #162127;
+    --surface-2:   #1B282F;
+    --sunk:        #101A1F;
+    --line:        #2A3A42;
+    --line-strong: #3C5059;
+    --ink:         #E7EEF0;
+    --ink-2:       #A2B5BC;
+    --ink-3:       #7B9199;
+    --accent:      #33B8B0;
+    --accent-soft: #12312F;
+    --lemon:       #D6A62E;
+    --good:        #2E9E74;
+    --bad:         #E2707A;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground:      #0E171C;
+  --surface:     #162127;
+  --surface-2:   #1B282F;
+  --sunk:        #101A1F;
+  --line:        #2A3A42;
+  --line-strong: #3C5059;
+  --ink:         #E7EEF0;
+  --ink-2:       #A2B5BC;
+  --ink-3:       #7B9199;
+  --accent:      #33B8B0;
+  --accent-soft: #12312F;
+  --lemon:       #D6A62E;
+  --good:        #2E9E74;
+  --bad:         #E2707A;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 900px; margin: 0 auto; padding: 40px 24px 96px; }
+
+h1, h2, h3, .ui { font-family: var(--font-ui); }
+h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: -.015em; font-weight: 600; }
+h1 { font-size: 34px; line-height: 1.15; }
+h2 { font-size: 19px; }
+h3 { font-size: 14.5px; }
+p { margin: 0; max-width: 66ch; }
+.eyebrow {
+  font-family: var(--font-ui); font-size: 11px; font-weight: 600;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+}
+.lede { font-size: 17px; color: var(--ink-2); max-width: 62ch; }
+.note { font-size: 13.5px; color: var(--ink-3); max-width: 66ch; }
+.mono { font-family: var(--font-mono); font-size: .9em; }
+code {
+  font-family: var(--font-mono); font-size: 13px;
+  background: var(--sunk); padding: 1px 5px; border-radius: 4px;
+}
+a { color: var(--accent); }
+
+header { display: flex; flex-direction: column; gap: 12px; margin-bottom: 44px; }
+header .meta {
+  display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 6px;
+  font-family: var(--font-ui); font-size: 12.5px; color: var(--ink-3);
+}
+header .meta b { color: var(--ink); font-weight: 600; }
+
+section { display: flex; flex-direction: column; gap: 16px; margin-bottom: 44px; }
+.head { display: flex; flex-direction: column; gap: 5px; }
+
+/* One sentence, set apart, because it is the whole mechanism. */
+.thesis {
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 18px;
+  font-family: var(--font-ui); font-size: 19px; font-weight: 500;
+  line-height: 1.45; color: var(--ink); max-width: 56ch;
+}
+
+/* The pipeline is a real ordered sequence, which is the only reason it is
+   numbered: each stage can only run after the one above it. */
+.pipeline { display: flex; flex-direction: column; }
+.stage {
+  display: grid; grid-template-columns: 34px minmax(0, 190px) minmax(0, 1fr);
+  gap: 4px 16px; align-items: baseline;
+  padding: 11px 0; border-top: 1px solid var(--line);
+}
+.stage:last-child { border-bottom: 1px solid var(--line); }
+.stage .n {
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.stage .what { font-family: var(--font-ui); font-weight: 600; font-size: 14px; }
+.stage .does { color: var(--ink-2); font-size: 14px; }
+.stage.gate { background: var(--accent-soft); }
+.stage.gate .n { color: var(--accent); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.block {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 16px 18px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.block h3 { color: var(--ink); }
+.block p { font-size: 14px; color: var(--ink-2); max-width: none; }
+.block .src {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3);
+  padding-top: 4px; margin-top: auto;
+}
+
+.tblwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th {
+  text-align: left; font-family: var(--font-ui); font-size: 11px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3);
+  padding: 10px 14px; background: var(--surface-2);
+  border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.k { font-family: var(--font-ui); font-weight: 600; white-space: nowrap; }
+td.d { color: var(--ink-2); }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+/* Guarantees read as a checklist because that is what they are: each one is
+   asserted by the build and fails it. */
+.rules { display: flex; flex-direction: column; gap: 0; }
+.rule {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px;
+  padding: 10px 0; border-top: 1px dashed var(--line);
+}
+.rule:first-child { border-top: 0; }
+.rule .tick { color: var(--good); font-family: var(--font-ui); font-weight: 700; }
+.rule b { font-family: var(--font-ui); font-weight: 600; }
+.rule span.t { font-size: 14px; color: var(--ink-2); }
+
+.limits { border-left: 3px solid var(--lemon); padding-left: 18px; }
+.limits li { font-size: 14px; color: var(--ink-2); margin-bottom: 7px; }
+.limits ul { margin: 0; padding-left: 18px; }
+
+footer {
+  margin-top: 8px; padding-top: 20px; border-top: 1px solid var(--line);
+  font-size: 13px; color: var(--ink-3);
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (max-width: 620px) {
+  h1 { font-size: 27px; }
+  .stage { grid-template-columns: 26px minmax(0, 1fr); }
+  .stage .does { grid-column: 2; }
+}
+</style>
+
+<div class="page">
+
+<header>
+  <div class="eyebrow">PS Intelligence</div>
+  <h1>How it works</h1>
+  <p class="lede">A professional services operating console and acquisition
+    diligence engine. It reads a delivery organisation's own history and
+    answers, on every run, whether the business is profitable, whether the
+    engagements are healthy, whether the people are used well, whether the
+    next six months can be delivered, and what to do this week.</p>
+  <div class="meta">
+    <span><b>18</b> views</span>
+    <span><b>56</b> delivery rules in <b>9</b> families</span>
+    <span><b>142</b> build-time verification checks</span>
+    <span><b>24</b> months of history</span>
+    <span>as of <b>31 Aug 2026</b></span>
+  </div>
+</header>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">The mechanism</div>
+    <h2>One database, one engine, seventeen readings of it</h2>
+  </div>
+  <p class="thesis">Nothing on any screen is typed in. Every figure is a query
+    result over one dataset, computed by one engine, on one set of published
+    definitions.</p>
+  <p>That constraint is the product. A services business usually has its
+    utilisation in one report, its margin in another and its project health in
+    a third, each on a slightly different definition, and the first time two
+    of them disagree in a meeting all three stop being used. Here a number
+    appears once, with its formula, its numerator, its denominator and the
+    vendor formula it diverges from stated beside it.</p>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">The pipeline</div>
+    <h2>Eleven stages, in this order</h2>
+    <p class="note">The order is enforced, not conventional: each stage reads
+      what the ones above it wrote, so the chain fails loudly rather than
+      quietly producing a screen built on a stale run.</p>
+  </div>
+  <div class="pipeline">
+    <div class="stage">
+      <span class="n">01</span>
+      <span class="what">Schema</span>
+      <span class="does">Eight SQL files build the model: customers, people,
+        engagements, contracts, plans, timesheets, financials, pipeline, audit.</span>
+    </div>
+    <div class="stage gate">
+      <span class="n">02</span>
+      <span class="what">Load the company</span>
+      <span class="does">Either the demonstration book, or a real one through
+        the eight intake templates and <code>load_target.py</code>. This is the
+        only stage that writes source data.</span>
+    </div>
+    <div class="stage">
+      <span class="n">03</span>
+      <span class="what">Intelligence engine</span>
+      <span class="does">Peer cohorts, margin prediction, risk scoring, capacity
+        model, forecast accuracy, red flags, the weekly brief.</span>
+    </div>
+    <div class="stage">
+      <span class="n">04</span>
+      <span class="what">Scenarios</span>
+      <span class="does">What-if levers and deal go/no-go, run against the
+        engine's own baseline rather than a spreadsheet.</span>
+    </div>
+    <div class="stage">
+      <span class="n">05</span>
+      <span class="what">Diligence pack</span>
+      <span class="does">Satisfaction and verbatims, phase durations and why
+        they slip, hypercare, realised rate, performance cycles, product
+        backlog, the red and amber register.</span>
+    </div>
+    <div class="stage">
+      <span class="n">06</span>
+      <span class="what">Earned value</span>
+      <span class="does">Cost and schedule indices per live engagement, and the
+        quadrant each one sits in.</span>
+    </div>
+    <div class="stage">
+      <span class="n">07</span>
+      <span class="what">Delivery checks</span>
+      <span class="does">56 rules over every record in scope, each with a
+        population so a rate can be read rather than a count.</span>
+    </div>
+    <div class="stage">
+      <span class="n">08</span>
+      <span class="what">Resource requirement</span>
+      <span class="does">Demand against supply per product line, with hires and
+        attrition backfill kept apart.</span>
+    </div>
+    <div class="stage">
+      <span class="n">09</span>
+      <span class="what">Delivery economics</span>
+      <span class="does">Billing against revenue recognition, and the economics
+        of each commercial model.</span>
+    </div>
+    <div class="stage">
+      <span class="n">10</span>
+      <span class="what">Automation and AI</span>
+      <span class="does">Where a tool would pay: a measured baseline per
+        process, the rates applied to it held as named assumptions, and the
+        modelled saving kept separate from both.</span>
+    </div>
+    <div class="stage gate">
+      <span class="n">11</span>
+      <span class="what">Verify, then publish</span>
+      <span class="does">142 assertions over the finished data. If one fails,
+        nothing publishes.</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">What it computes</div>
+    <h2>Four questions, and the honest version of each</h2>
+  </div>
+  <div class="grid2">
+    <div class="block">
+      <h3>Is the money real</h3>
+      <p>Margin on recognised revenue rather than invoiced, so it does not move
+        when an invoice is raised. Billing and recognition are reported as two
+        signed positions, never netted: work delivered and not billed is
+        somebody's to collect, work billed and not delivered is somebody's to
+        deliver.</p>
+      <div class="src">Profitability · Billing vs rev rec · T&amp;M vs fixed fee</div>
+    </div>
+    <div class="block">
+      <h3>Is the delivery real</h3>
+      <p>Progress is earned plan, not hours spent over estimate. That single
+        choice is what lets the cost index fall below 1.00 at all, and it is
+        why an engagement can read over cost here while a conventional PSA
+        report shows it healthy.</p>
+      <div class="src">Project intelligence · Earned value</div>
+    </div>
+    <div class="block">
+      <h3>Are the people used well</h3>
+      <p>Utilisation is paired with realised rate, because a team can lift
+        utilisation and lose money. Demand and supply are matched per product
+        line at the person-week grain, and the verdict separates hiring from
+        backfilling attrition.</p>
+      <div class="src">PS Operating System · Resource requirement</div>
+    </div>
+    <div class="block">
+      <h3>Where a tool would pay</h3>
+      <p>Ten automation and AI opportunities, each as three separable parts: a
+        baseline measured from the timesheet categories the team itself uses,
+        rates that are assumptions and are labelled as such, and the product
+        of the two. The model can say no, and on this book it says no to
+        three.</p>
+      <div class="src">Automation &amp; AI</div>
+    </div>
+    <div class="block">
+      <h3>Can it be trusted</h3>
+      <p>Each of the 56 rules records what it asserts, why that matters, what
+        fixes it, and whether the source platform blocks the condition, reports
+        it, or is silent on it. The silent ones are the point: those are the
+        conditions nobody finds without reconciling a spreadsheet.</p>
+      <div class="src">Delivery checks · Data intake &amp; migration</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">Guarantees</div>
+    <h2>Five things the build enforces</h2>
+    <p class="note">Each is asserted at stage 10 and fails the build, so it
+      cannot quietly stop being true.</p>
+  </div>
+  <div class="rules">
+    <div class="rule"><span class="tick">✓</span>
+      <span class="t"><b>No AI change without confirmation.</b> Nothing
+        predictive writes to financial or project data. The engine's health
+        score sits beside the project manager's, and the divergence is the
+        finding.</span></div>
+    <div class="rule"><span class="tick">✓</span>
+      <span class="t"><b>No hard-coded values.</b> Targets, thresholds and
+        rates are configuration and are shown with the figures they judge.</span></div>
+    <div class="rule"><span class="tick">✓</span>
+      <span class="t"><b>Every important change is auditable.</b> Who, what,
+        the previous value, the new value, and when.</span></div>
+    <div class="rule"><span class="tick">✓</span>
+      <span class="t"><b>An override needs a reason.</b> A project manager can
+        overrule the engine; the comment is mandatory and is kept with the
+        override.</span></div>
+    <div class="rule"><span class="tick">✓</span>
+      <span class="t"><b>No AI step without a stated guardrail.</b> Every
+        AI-typed automation opportunity names what stays with a person, and
+        its saving is taken net of the time that review costs.</span></div>
+    <div class="rule"><span class="tick">✓</span>
+      <span class="t"><b>No rule can fail more records than it examined.</b>
+        A check whose failures exceed its population is counting two grains and
+        calling them one, and it breaks the build rather than shipping.</span></div>
+  </div>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">Pointing it at a company</div>
+    <h2>Three steps, one script</h2>
+  </div>
+  <div class="tblwrap">
+    <table>
+      <thead>
+        <tr><th>Step</th><th>What happens</th><th class="num">Effort</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="k">Send the templates</td>
+          <td class="d">Eight files, with a data dictionary defining every
+            column: type, mandatory, key, references, allowed values. Time
+            entries and financials need 24 months.</td>
+          <td class="num">theirs</td>
+        </tr>
+        <tr>
+          <td class="k">Dry run</td>
+          <td class="d">Seven validation stages in a fixed order: headers,
+            types, mandatory values, enumerations, keys, references, cross-field
+            sense. Errors block a row, warnings load it and raise a finding.
+            Nothing is written.</td>
+          <td class="num">minutes</td>
+        </tr>
+        <tr>
+          <td class="k">Load and analyse</td>
+          <td class="d">One command loads the book and runs the whole chain
+            above. Anything the templates cannot carry is substituted from the
+            acquirer's own book and recorded as an intake finding, never as a
+            silent default.</td>
+          <td class="num">under a minute</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">A clean dry run means the load will not fail halfway,
+    because it is the same validation the load uses.</p>
+</section>
+
+<section>
+  <div class="head">
+    <div class="eyebrow">Scope</div>
+    <h2>What it is not</h2>
+  </div>
+  <div class="limits">
+    <ul>
+      <li>Not a PSA system. It does not run delivery, approve time or raise
+        invoices. It reads what a PSA holds and answers questions that product
+        does not.</li>
+      <li>Not live. Each run is an as-of snapshot, so two runs are comparable
+        and a figure can be reproduced.</li>
+      <li>Not a substitute for the target's own numbers. Where the intake
+        cannot supply something, the console says so on the screen that needs
+        it rather than filling the gap.</li>
+      <li>Not multi-user. One reader, no login, no server, no write-back from
+        the screen. SQLite rather than Postgres. It is a reporting and
+        diligence surface, not a system of record.</li>
+      <li>The demonstration book is generated. It is internally consistent and
+        deliberately contains the problems the engine exists to find, but no
+        figure in it should be quoted.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  PS Intelligence · Professional Services · engine as of 31 August 2026.
+</footer>
+
+</div>
+
+</body>
+</html>

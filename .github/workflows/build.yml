@@ -1,0 +1,108 @@
+# Rebuild the database from source on every push and refuse to publish a site
+# the verification checks reject.
+#
+# The point of running this in CI rather than trusting the committed docs/ is
+# that the committed console is an output. If a schema change breaks an engine,
+# the committed page still looks fine and still shows the old numbers. This job
+# rebuilds from sql/ and py/ and fails on the first assertion that does not
+# hold, so a broken pipeline cannot reach the site.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      pages: ${{ steps.pages.outcome }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # No pip install. The build path is standard library only, and keeping
+      # it that way is what makes this job twenty seconds rather than two
+      # minutes.
+      - name: Build the database, the engines and the console
+        run: bash py/rebuild_all.sh
+
+      # rebuild_all.sh already ends with verify.py, so this is belt and braces
+      # against somebody removing that line.
+      - name: Verify
+        run: python3 py/verify.py
+
+      - name: Check the built site is not empty
+        run: |
+          test -s docs/index.html
+          test -s docs/how-it-works.html
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path("docs/index.html").read_text(encoding="utf-8")
+          assert p.lstrip().startswith("<!doctype html>"), "not a standalone document"
+          assert '"orgs"' in p, "payload missing from the built console"
+          print(f"docs/index.html {len(p)/1e6:.2f} MB, looks complete")
+          PY
+
+      # The controls are tested in CI because a chip that renders and does
+      # nothing passes every other check in this pipeline.
+      - name: Install Chromium for the interaction tests
+        run: pip install playwright && playwright install --with-deps chromium
+
+      - name: Render every view and click every control
+        run: |
+          python3 py/test_ui.py
+          python3 py/test_buttons.py
+
+      # Pages on a private repository needs GitHub Team or Enterprise. On a
+      # free private repository this cannot succeed, and that is a plan fact
+      # rather than a broken build, so it is allowed to fail and the two steps
+      # that depend on it are skipped. The alternative is a permanently red
+      # tick against a pipeline that is fine, which is how people stop reading
+      # the tick.
+      - name: Configure Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Say why the site is not publishing
+        if: steps.pages.outcome != 'success'
+        run: |
+          echo "::notice::GitHub Pages is not available for this repository."
+          echo "Pages needs either a public repository or a Team/Enterprise"
+          echo "plan on a private one. The build and all checks passed, and"
+          echo "docs/index.html is committed, so the console can still be"
+          echo "opened from the repository. See NOTICE.md."
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main' && steps.pages.outcome == 'success'
+        with:
+          path: docs
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.pages == 'success'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

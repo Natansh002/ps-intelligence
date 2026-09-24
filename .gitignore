@@ -1,0 +1,28 @@
+# The database is generated, not authored. `make build` recreates it from the
+# schema and the seeds in about twenty seconds, and at 31 MB it would dominate
+# the repository and every clone of it. The schema in sql/ is the source of
+# truth; psa.db is an output.
+psa.db
+psa.db-journal
+psa.db-wal
+psa.db.bak
+
+# Build outputs. docs/ is committed because GitHub Pages serves it; everything
+# under out/ is either a duplicate of that or a working file.
+out/
+!out/.gitkeep
+
+# Test and packaging artefacts
+__pycache__/
+*.pyc
+.pytest_cache/
+*.zip
+*.pdf
+page-*.jpg
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
